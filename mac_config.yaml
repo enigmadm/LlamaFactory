@@ -1,0 +1,86 @@
+Fine-tuning a private AI model locally on a Mac using LLaMA Factory requires routing your training workloads through Apple's MPS (Metal Performance Shaders) backend. This ensures the process leverages your Mac's unified memory and GPU instead of exhausting the CPU.
+Follow this step-by-step terminal guide to safely install, configure, and execute private LoRA fine-tuning.
+
+Step 1: Set Up an Isolated Environment
+
+Do not use your system Python. Create a clean environment to ensure dependency compatibility (LLaMA Factory runs cleanly on Python 3.11 or 3.12).
+1. Open your Terminal application.
+2. Create and activate a new Conda environment:bash
+conda create -n llama_factory python=3.12 -y
+conda activate llama_factory
+Use code with caution.
+
+Step 2: Clone and Install LLaMA Factory
+
+Clone the official repository and install it in editable (-e) mode alongside required metrics packages.
+bash
+git clone --depth 1 https://github.com/hiyouga/LLaMA-Factory.git
+cd LLaMA-Factory
+pip install -e .
+pip install -r requirements/metrics.txt
+Use code with caution.
+Verify the installation by running: llamafactory-cli version
+
+Step 3: Inject Your Private Dataset
+
+To keep your data completely private, place your dataset files inside the repository and manually register them.
+1. Format your private training data as an Alpaca-style JSON file:json
+[
+  {
+    "instruction": "What is the company policy on remote work?",
+    "input": "",
+    "output": "Employees are permitted to work remotely up to 3 days per week with manager approval."
+  }
+]
+Use code with caution.
+2. Save this file as private_data.json inside the LLaMA-Factory/data/ directory.
+3. Open LLaMA-Factory/data/dataset_info.json in a text editor and register your file by adding a block at the top:json
+"private_dataset": {
+  "file_name": "private_data.json"
+},
+Use code with caution.
+
+Step 4: Configure Mac-Specific Parameters
+
+Because Mac uses Apple Silicon (Metal/MPS) instead of NVIDIA (CUDA), you must avoid standard Linux flags like --fp16, --bf16, or bitsandbytes quantization (--quantization_bit), as they will crash on macOS. Mac fine-tuning relies on full 32-bit floats (pure_bf16 or standard fp32) through MPS.
+Create a configuration file named mac_config.yaml in your root LLaMA-Factory directory:
+yaml
+### Method parameters
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_target: all
+
+### Model and Dataset parameters
+model_name_or_path: Qwen/Qwen2.5-0.5B-Instruct  # Swap for any local directory or HuggingFace ID
+template: qwen
+dataset: private_dataset
+cutoff_len: 512
+max_samples: 1000
+overwrite_cache: true
+preprocessing_num_workers: 4
+
+### Output configurations
+output_dir: saves/Qwen2.5-0.5B/lora/private_model
+logging_steps: 10
+save_steps: 100
+plot_loss: true
+
+### Mac MPS-Optimized Training Parameters
+device_map: mps
+mixed_precision: "no"               # Crucial: standard Mac torch requires 'no' or 'fp32'
+per_device_train_batch_size: 1      # Keep low to avoid out-of-memory errors
+gradient_accumulation_steps: 8      # Simulates a higher batch size without spiking RAM
+learning_rate: 0.0002
+num_train_epochs: 3.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+Use code with caution.
+
+Step 5: Launch the Training Session
+
+Execute the training pipeline via your terminal. LLaMA Factory will automatically leverage your Apple Silicon GPU framework.
+bash
+llamafactory-cli train mac_config.yaml
+Use code with caution.
+Alternative (Web UI): If you prefer to set up and track parameters visually, you can boot the local dashboard with llamafactory-cli webui.
